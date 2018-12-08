@@ -1,46 +1,57 @@
+// Package wikimedia is an interface to the
+// Wikimedia (Wikipedia, Wiktionary, etc.) API built in Go.
 package wikimedia
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/json-iterator/go"
 )
 
-// A Wikimedia API response
-type ApiResponse struct {
-	Query         ApiQuery         `json:"query"`
-	QueryContinue ApiQueryContinue `json:"query-continue"`
+// ApiPage model struct as defined by any
+// Wikimedia API JSON response.
+type ApiPage struct {
+	PageId    int       `json:"pageid"`
+	Ns        int       `json:"ns"`
+	Title     string    `json:"title"`
+	Extract   string    `json:"extract"`
+	Thumbnail Thumbnail `json:"thumbnail"`
+	Original  Original  `json:"original"`
 }
 
-// Strip all HTML tags from the response
-func (a *ApiResponse) StripHtml() {
-	for k, v := range a.Query.Pages {
-		v.Title = stripHtml(v.Title)
-		v.Extract = stripHtml(v.Extract)
-		a.Query.Pages[k] = v
-	}
-	for i, v := range a.Query.Search {
-		v.Title = stripHtml(v.Title)
-		v.Snippet = stripHtml(v.Snippet)
-		a.Query.Search[i] = v
-	}
-}
-
+// ApiQuery model struct as defined by any
+// Wikimedia API JSON response.
 type ApiQuery struct {
 	Pages      map[string]ApiPage `json:"pages"`
 	Search     []ApiSearch        `json:"search"`
 	SearchInfo ApiSearchInfo      `json:"searchinfo"`
 }
 
-type ApiPage struct {
-	PageId  int    `json:"pageid"`
-	Ns      int    `json:"ns"`
-	Title   string `json:"title"`
-	Extract string `json:"extract"`
+// ApiQueryContinue model struct as defined by any
+// Wikimedia API JSON response.
+type ApiQueryContinue struct {
+	Search ApiQueryContinueSearch `json:"search"`
 }
 
+// ApiQueryContinueSearch model struct as defined by any
+// Wikimedia API JSON response.
+type ApiQueryContinueSearch struct {
+	SrOffset int `json:"sroffset"`
+}
+
+// ApiResponse model struct as defined by any
+// Wikimedia API JSON response.
+type ApiResponse struct {
+	Query         ApiQuery         `json:"query"`
+	QueryContinue ApiQueryContinue `json:"query-continue"`
+}
+
+// ApiSearch model struct as defined by any
+// Wikimedia API JSON response.
 type ApiSearch struct {
 	Ns        int       `json:"ns"`
 	Title     string    `json:"title"`
@@ -50,100 +61,110 @@ type ApiSearch struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// ApiSearchInfo model struct as defined by any
+// Wikimedia API JSON response.
 type ApiSearchInfo struct {
-	Totalhits int `json:"totalhits"`
+	TotalHits int `json:"source"`
 }
 
-type ApiQueryContinue struct {
-	Search ApiQueryContinueSearch `json:"search"`
+// Original model struct as defined by any
+// Wikimedia API JSON response.
+type Original struct {
+	Source string `json:"source"`
 }
 
-type ApiQueryContinueSearch struct {
-	SrOffset int `json:"sroffset"`
+// Thumbnail model struct as defined by any
+// Wikimedia API JSON response.
+type Thumbnail struct {
+	Source string `json:"source"`
 }
 
-func stripHtml(s string) string {
-	var rs []rune
-	in := false
-	for _, v := range s {
-		if in {
-			if v == '>' {
-				in = false
-			}
-			continue
-		}
-		if v == '<' {
-			in = true
-			continue
-		}
-		rs = append(rs, v)
-	}
-	return string(rs)
-}
-
-// A Wikimedia API client
+// Wikimedia is an API client struct.
 type Wikimedia struct {
-	// Full URL of the Wikimedia API, e.g. url.Parse("http://en.wikipedia.org/w/api.php")
-	Url *url.URL
+	Options Options
+}
 
-	// Automatically strip HTML tags from API responses
-	StripHtml bool
-
+// Options is a collection of configurable options for the Wikimedia client.
+type Options struct {
+	// Full URL of the Wikimedia API, e.g. url.Parse("https://en.wikipedia.org/w/api.php")
+	URL string
 	// HTTP client to use (defaults to http.DefaultClient)
 	Client *http.Client
-
 	// User-Agent header to provide
 	UserAgent string
-
-	url string
 }
 
-func (w *Wikimedia) get(url string) (*http.Response, error) {
+// json replaces the standard JSON library instance with a faster JSON implementation
+// ref: https://github.com/json-iterator/go.
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
+
+// New initializes a Wikimedia object that queries the specified API URL,
+// e.g. http://en.wikipedia.org/w/api.php or http://da.wiktionary.org/w/api.php.
+// Returns a pointer to a Wikimedia struct and an error.
+func New(options ...Options) (*Wikimedia, error) {
+	var opts Options
+	if len(options) == 0 {
+		opts = Options{}
+	} else {
+		opts = options[0]
+	}
+
+	if opts.URL == "" {
+		return nil, errors.New("URL cannot be nil")
+	}
+	_, err := url.Parse(opts.URL)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the new Wikimedia object
+	return &Wikimedia{
+		Options: opts,
+	}, nil
+}
+
+// Query quires the Wikimedia API using the user-specified query.
+// See https://en.wikipedia.org/w/api.php for a reference.
+// Returns a pointer to an ApiResponse and an error.
+func (wiki *Wikimedia) Query(query url.Values) (*ApiResponse, error) {
+	// Construct the query string and make a new request to the wiki's URL
+	query["format"] = []string{"json"}
+	queryURL := fmt.Sprintf("%s?%s", wiki.Options.URL, query.Encode())
+	resp, err := wiki.get(queryURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decode the Wikimedia JSON API response
+	var apiResp ApiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, err
+	}
+
+	// Return the Wikimedia API response
+	return &apiResp, nil
+}
+
+// get sends a request to the specific Wikimedia API utilizing the
+// user specified input. Can be any Wikimedia API, not just Wikipedia.
+// Returns a pointer to an http.Response and an error.
+func (wiki *Wikimedia) get(url string) (*http.Response, error) {
+	// Create the request var from the URL specified
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	if w.UserAgent != "" {
-		req.Header.Add("User-Agent", w.UserAgent)
+
+	// Set user agent, if specified
+	if wiki.Options.UserAgent != "" {
+		req.Header.Set("User-Agent", wiki.Options.UserAgent)
 	}
-	if w.Client != nil {
-		return w.Client.Do(req)
+
+	// Set custom http client to complete the request, if specified
+	if wiki.Options.Client != nil {
+		return wiki.Options.Client.Do(req)
 	}
+
+	// Use the default http client to complete the request otherwise
 	return http.DefaultClient.Do(req)
-}
-
-// Queries the Wikimedia API using the specified values, and returns an
-// ApiResponse. See http://en.wikipedia.org/w/api.php for a reference.
-func (w *Wikimedia) Query(vals url.Values) (*ApiResponse, error) {
-	vals["format"] = []string{"json"}
-	if w.url == "" {
-		w.url = w.Url.String()
-	}
-	u := fmt.Sprintf("%s?%s", w.url, vals.Encode())
-	res, err := w.get(u)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	var api ApiResponse
-	err = json.NewDecoder(res.Body).Decode(&api)
-	if w.StripHtml {
-		api.StripHtml()
-	}
-	return &api, nil
-}
-
-// Set up a client that queries the specified API, e.g.
-// http://en.wikipedia.org/w/api.php or http://da.wiktionary.org/w/api.php.
-// Returns an error if the URL is invalid.
-func New(apiUrl string) (*Wikimedia, error) {
-	u, err := url.Parse(apiUrl)
-	if err != nil {
-		return nil, err
-	}
-	w := &Wikimedia{
-		Url: u,
-	}
-	return w, nil
 }
