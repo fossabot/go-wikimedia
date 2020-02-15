@@ -1,4 +1,6 @@
 # go-wikimedia
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fciehanski%2Fgo-wikimedia.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fciehanski%2Fgo-wikimedia?ref=badge_shield)
+
 go-wikimedia is an interface to the Wikimedia (Wikipedia, Wiktionary, etc.) API 
 implemented in the Go programming language.
 
@@ -69,3 +71,5 @@ Please feel free to contribute and submit any PRs to this project.
 ## License
 
 MIT
+
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fciehanski%2Fgo-wikimedia.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fciehanski%2Fgo-wikimedia?ref=badge_large)
